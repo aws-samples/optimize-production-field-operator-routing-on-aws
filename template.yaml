@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  This code demo shows how to generate optimized driving route recommendations
+  for production field operators which maximize the production drops the
+  operator can address during their shift.
+
+Resources: 
+
+  #############################################
+  ######## Persistent Resources ###############
+  #############################################
+  RouteMatrixTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey: 
+        Name: well_name_hash
+        Type: String
+  
+  RouteWellTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      PrimaryKey: 
+        Name: route_name
+        Type: String
+
+  #############################################
+  ######## Compute Resources ##################
+  #############################################
+  AmazonLocationRouteCalculator:  
+    Type: AWS::Location::RouteCalculator
+    Properties: 
+      CalculatorName: !Sub "${AWS::StackName}-RouteCalculator"
+      DataSource: Here
+      Description: Here Route Calculator used for Calculating Route Matrix and Calculating Routes
+  
+  GetOptimizedRouteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/get-optimized-route/
+      Handler: get-optimized-route-app.lambda_handler
+      Runtime: python3.9
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          LOCATION_CALCULATOR_NAME: !Ref AmazonLocationRouteCalculator
+          TRAVEL_MODE: Car
+          DISTANCE_UNIT: Miles
+          ROUTE_MATRIX_TABLE_NAME: !Ref RouteMatrixTable
+          ROUTE_WELL_TABLE_NAME: !Ref RouteWellTable
+          PYTHONHASHSEED: 0
+      Policies:
+        - Version: 2012-10-17
+          Statement:
+              Effect: Allow
+              Action:
+                - geo:CalculateRoute
+                - geo:CalculateRouteMatrix
+              Resource: !GetAtt AmazonLocationRouteCalculator.Arn
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RouteMatrixTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RouteWellTable
+      Events:
+        APIEvent:
+          Type: HttpApi
+          Properties:
+            Method: GET
+            Path: /get-optimized-driving-route
+  
+  
+Outputs:
+  WebEndpoint:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/get-optimized-driving-route"
